@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Resource Limit Exceeded Counter</title>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --accent: #0f766e;
+      --accent-hover: #0d655f;
+      --danger: #b91c1c;
+      --danger-hover: #991b1b;
+      --ring: #99f6e4;
+      --danger-ring: #fecaca;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--text);
+      background: linear-gradient(160deg, #eef2ff 0%, var(--bg) 45%, #f0fdfa 100%);
+      display: grid;
+      place-items: center;
+      padding: 1.25rem;
+    }
+
+    .card {
+      width: min(640px, 100%);
+      background: var(--panel);
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      box-shadow: 0 12px 28px rgba(17, 24, 39, 0.08);
+      padding: clamp(1.25rem, 3vw, 2rem);
+      text-align: center;
+    }
+
+    h1 {
+      margin: 0 0 0.5rem;
+      letter-spacing: 0.04em;
+      font-size: clamp(1.25rem, 3.2vw, 2rem);
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .tally {
+      margin: 1.4rem 0;
+      font-size: clamp(3rem, 12vw, 6rem);
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-top: 1rem;
+    }
+
+    button {
+      border: none;
+      border-radius: 12px;
+      color: #ffffff;
+      font-size: 1rem;
+      font-weight: 700;
+      padding: 0.85rem 1.1rem;
+      cursor: pointer;
+      transition: background 140ms ease, transform 140ms ease, opacity 140ms ease;
+      min-width: 180px;
+    }
+
+    #addButton {
+      background: var(--accent);
+    }
+
+    #addButton:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    #subtractButton {
+      background: var(--danger);
+    }
+
+    #subtractButton:hover {
+      background: var(--danger-hover);
+      transform: translateY(-1px);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    #addButton:focus-visible {
+      outline: 3px solid var(--ring);
+      outline-offset: 2px;
+    }
+
+    #subtractButton:focus-visible {
+      outline: 3px solid var(--danger-ring);
+      outline-offset: 2px;
+    }
+
+    .status {
+      margin-top: 0.9rem;
+      min-height: 1.2em;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .status.error {
+      color: var(--danger);
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Resource Limit Exceeded Counter</h1>
+    <p>Shared tally across all devices that open this site.</p>
+    <div class="tally" id="tally" aria-live="polite">0</div>
+
+    <div class="controls">
+      <button id="addButton" type="button">Add +1</button>
+      <button id="subtractButton" type="button">Subtract -1</button>
+    </div>
+
+    <div class="status" id="status" aria-live="polite"></div>
+  </main>
+
+  <script>
+    const tallyEl = document.getElementById("tally");
+    const addButton = document.getElementById("addButton");
+    const subtractButton = document.getElementById("subtractButton");
+    const statusEl = document.getElementById("status");
+
+    const API_BASE = "https://api.counterapi.dev/v1";
+    const COUNTER_NAMESPACE = "rlec-shared-public";
+    const COUNTER_NAME = "resource-limit-exceeded";
+    const COUNTER_BASE_URL = `${API_BASE}/${encodeURIComponent(COUNTER_NAMESPACE)}/${encodeURIComponent(COUNTER_NAME)}`;
+
+    function setStatus(message, isError = false) {
+      statusEl.textContent = message;
+      statusEl.classList.toggle("error", isError);
+    }
+
+    function setBusy(isBusy) {
+      addButton.disabled = isBusy;
+      subtractButton.disabled = isBusy;
+    }
+
+    function setTally(value) {
+      tallyEl.textContent = String(value);
+    }
+
+    function readCount(data) {
+      const raw = data && (data.count ?? data.Count);
+      const count = Number(raw);
+      if (!Number.isFinite(count)) {
+        throw new Error("Invalid count payload");
+      }
+      return count;
+    }
+
+    async function requestCount(endpoint = "") {
+      const url = endpoint ? `${COUNTER_BASE_URL}/${endpoint}` : COUNTER_BASE_URL;
+      const response = await fetch(url, { method: "GET", cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const err = new Error(`Counter API request failed (${response.status})`);
+        err.status = response.status;
+        throw err;
+      }
+
+      return readCount(payload);
+    }
+
+    async function loadCount() {
+      try {
+        return await requestCount();
+      } catch (error) {
+        if (error && error.status === 404) {
+          try {
+            return await requestCount("set?count=0");
+          } catch {
+            await requestCount("up");
+            return await requestCount("down");
+          }
+        }
+        throw error;
+      }
+    }
+
+    async function updateCount(direction) {
+      setBusy(true);
+      setStatus("Updating...");
+
+      try {
+        const endpoint = direction === "up" ? "up" : "down";
+        const count = await requestCount(endpoint);
+        setTally(count);
+        setStatus("Updated");
+      } catch {
+        setStatus("Could not reach the shared counter. Try again.", true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    addButton.addEventListener("click", () => updateCount("up"));
+    subtractButton.addEventListener("click", () => updateCount("down"));
+
+    async function initialLoad() {
+      setBusy(true);
+      setStatus("Loading...");
+
+      try {
+        const count = await loadCount();
+        setTally(count);
+        setStatus("");
+      } catch {
+        setStatus("Could not load shared tally. Check internet connection.", true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    initialLoad();
+    setInterval(async () => {
+      try {
+        const count = await requestCount();
+        setTally(count);
+      } catch {
+        // Keep current tally on transient failures.
+      }
+    }, 3000);
+  </script>
+</body>
+</html>
