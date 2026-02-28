@@ -158,7 +158,8 @@
     const API_BASE = "https://api.counterapi.dev/v1";
     const COUNTER_NAMESPACE = "rlec-shared-public";
     const COUNTER_NAME = "resource-limit-exceeded";
-    const COUNTER_BASE_URL = `${API_BASE}/${encodeURIComponent(COUNTER_NAMESPACE)}/${encodeURIComponent(COUNTER_NAME)}`;
+    const COUNTER_BASE_URL = `${API_BASE}/${encodeURIComponent(COUNTER_NAMESPACE)}/${encodeURIComponent(COUNTER_NAME)}/`;
+
 
     function setStatus(message, isError = false) {
       statusEl.textContent = message;
@@ -184,7 +185,7 @@
     }
 
     async function requestCount(endpoint = "") {
-      const url = endpoint ? `${COUNTER_BASE_URL}/${endpoint}` : COUNTER_BASE_URL;
+      const url = endpoint ? `${COUNTER_BASE_URL}${endpoint}` : COUNTER_BASE_URL;
       const response = await fetch(url, { method: "GET", cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
 
